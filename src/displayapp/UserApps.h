@@ -15,6 +15,8 @@
 #include "displayapp/screens/WatchFacePineTimeStyle.h"
 #include "displayapp/screens/WatchFaceTerminal.h"
 #include "displayapp/screens/WatchFacePrideFlag.h"
+#include "displayapp/screens/TapCounter.h"
+#include "displayapp/screens/ClimbLogger.h"
 
 namespace Pinetime {
   namespace Applications {

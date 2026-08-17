@@ -29,6 +29,8 @@ namespace Pinetime {
       Calculator,
       Steps,
       Dice,
+      TapCounter,
+      ClimbLogger,
       Weather,
       PassKey,
       QuickSettings,
