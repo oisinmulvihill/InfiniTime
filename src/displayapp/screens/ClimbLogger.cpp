@@ -17,7 +17,9 @@ namespace {
   // still open questions (see ROADMAP.md's cross-cutting open questions
   // table) — these are enough to exercise the flow, not the final word.
   constexpr const char* gymOptions[] = {"The Castle", "Climbing District", "Other"};
-  constexpr const char* styleOptions[] = {"Boulder", "Top Rope", "Lead"};
+  // "Second" = outdoors, following the leader up a sport or trad route and
+  // cleaning it. Graded on the same ladder as Top Rope/Lead.
+  constexpr const char* styleOptions[] = {"Boulder", "Top Rope", "Lead", "Second"};
   constexpr const char* typeOptions[] = {"Slab", "Overhang", "Vertical", "Mixed"};
   constexpr const char* vScaleGrades[] = {"V0", "V1", "V2", "V3", "V4", "V5", "V6", "V7"};
   constexpr const char* fontScaleGrades[] = {"5+", "6a", "6a+", "6b", "6b+", "6c", "6c+", "7a"};
