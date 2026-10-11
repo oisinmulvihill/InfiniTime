@@ -22,10 +22,25 @@ namespace {
   constexpr const char* styleOptions[] = {"Boulder", "Top Rope", "Lead", "Second"};
   constexpr const char* typeOptions[] = {"Slab", "Overhang", "Vertical", "Mixed"};
   constexpr const char* vScaleGrades[] = {"V0", "V1", "V2", "V3", "V4", "V5", "V6", "V7"};
-  constexpr const char* fontScaleGrades[] = {"5+", "6a", "6a+", "6b", "6b+", "6c", "6c+", "7a"};
+  // Lettered 4a-5c interleaved by difficulty with the un-lettered
+  // 4/4+/5/5+ some walls (the Castle included) grade their easier routes in.
+  constexpr const char* fontScaleGrades[] = {"4a", "4",  "4b",  "4+", "4c",  "5a", "5",   "5b", "5+",
+                                             "5c", "6a", "6a+", "6b", "6b+", "6c", "6c+", "7a"};
   constexpr const char* attemptOptions[] = {"Send", "Did Not Finish"};
+  // Lead/Second distinguish a clean first-go Send from a Red(point) --
+  // sent after earlier falls/rests on the route.
+  constexpr const char* leadAttemptOptions[] = {"Send", "Red", "DNF"};
 
   constexpr const char* kSelectionFile = "/climbs/last_selection.csv";
+
+  // Lists longer than this don't fit on one screen at a usable button
+  // size, so they get taller buttons inside a scrolling lv_page instead.
+  constexpr size_t kMaxVisibleOptions = 8;
+  constexpr lv_coord_t kMatrixWidth = 200;
+  constexpr lv_coord_t kViewHeight = 180;
+  constexpr lv_coord_t kScrollRowHeight = 60; // 3 rows visible at once
+  constexpr lv_coord_t kScrollStep = 2 * kScrollRowHeight; // per swipe, leaves one row of context
+  constexpr lv_coord_t kScrollbarGutter = 10;
 
   void ButtonMatrixEventHandler(lv_obj_t* obj, lv_event_t event) {
     auto* screen = static_cast<ClimbLogger*>(obj->user_data);
@@ -66,10 +81,15 @@ bool ClimbLogger::IsBoulderStyle() const {
   return selectedStyle != nullptr && std::strcmp(selectedStyle, "Boulder") == 0;
 }
 
+bool ClimbLogger::IsLeadOrSecondStyle() const {
+  return selectedStyle != nullptr && (std::strcmp(selectedStyle, "Lead") == 0 || std::strcmp(selectedStyle, "Second") == 0);
+}
+
 void ClimbLogger::ShowStep() {
   lv_obj_clean(lv_scr_act());
   titleLabel = nullptr;
   buttonMatrix = nullptr;
+  scrollPage = nullptr;
 
   switch (step) {
     case Step::Gym:
@@ -89,7 +109,11 @@ void ClimbLogger::ShowStep() {
       }
       break;
     case Step::Attempt:
-      ShowOptionsStep("Attempt", attemptOptions, std::size(attemptOptions), selectedAttempt);
+      if (IsLeadOrSecondStyle()) {
+        ShowOptionsStep("Attempt", leadAttemptOptions, std::size(leadAttemptOptions), selectedAttempt);
+      } else {
+        ShowOptionsStep("Attempt", attemptOptions, std::size(attemptOptions), selectedAttempt);
+      }
       break;
   }
 }
@@ -119,12 +143,50 @@ void ClimbLogger::ShowOptionsStep(const char* title, const char* const* options,
   }
   optionsMap[mapIndex] = "";
 
-  buttonMatrix = lv_btnmatrix_create(lv_scr_act(), nullptr);
+  // Long lists: the button matrix is made taller than the screen and
+  // parented to an lv_page, which clips it to a viewport and can slide it
+  // up and down. The page is moved by SwipeUp/SwipeDown gestures in
+  // OnTouchEvent rather than by LVGL's own finger-drag scrolling, because
+  // InfiniTime's touch handler takes over a touch as soon as the panel
+  // reports a swipe gesture (see DisplayApp's TouchEvent handling), which
+  // would cut a drag off mid-scroll -- it's why stock InfiniTime lists
+  // page on swipes too.
+  const bool scrollable = count > kMaxVisibleOptions;
+  lv_obj_t* parent = lv_scr_act();
+  if (scrollable) {
+    scrollPage = lv_page_create(lv_scr_act(), nullptr);
+    lv_obj_set_size(scrollPage, kMatrixWidth + kScrollbarGutter, kViewHeight);
+    lv_obj_align(scrollPage, nullptr, LV_ALIGN_IN_BOTTOM_MID, kScrollbarGutter / 2, -5);
+    // InfiniTime's theme doesn't style pages, so give the scrollbar a
+    // visible look explicitly.
+    lv_obj_set_style_local_bg_color(scrollPage, LV_PAGE_PART_SCROLLBAR, LV_STATE_DEFAULT, LV_COLOR_GRAY);
+    lv_obj_set_style_local_bg_opa(scrollPage, LV_PAGE_PART_SCROLLBAR, LV_STATE_DEFAULT, LV_OPA_COVER);
+    lv_obj_set_style_local_size(scrollPage, LV_PAGE_PART_SCROLLBAR, LV_STATE_DEFAULT, 4);
+    lv_obj_set_style_local_radius(scrollPage, LV_PAGE_PART_SCROLLBAR, LV_STATE_DEFAULT, LV_RADIUS_CIRCLE);
+    parent = scrollPage;
+  }
+
+  buttonMatrix = lv_btnmatrix_create(parent, nullptr);
   buttonMatrix->user_data = this;
   lv_obj_set_event_cb(buttonMatrix, ButtonMatrixEventHandler);
   lv_btnmatrix_set_map(buttonMatrix, optionsMap.data());
-  lv_obj_set_size(buttonMatrix, 200, 180);
-  lv_obj_align(buttonMatrix, nullptr, LV_ALIGN_IN_BOTTOM_MID, 0, -5);
+  if (scrollable) {
+    const lv_coord_t rows = static_cast<lv_coord_t>((count + perRow - 1) / perRow);
+    lv_obj_set_size(buttonMatrix, kMatrixWidth, rows * kScrollRowHeight);
+    lv_obj_set_pos(buttonMatrix, 0, 0);
+    scrollTopY = lv_obj_get_y(lv_page_get_scrollable(scrollPage));
+    scrollMax = rows * kScrollRowHeight - kViewHeight;
+    scrollOffset = 0;
+    // Open with the remembered option already in view, one row down from
+    // the top where the list allows it.
+    if (rememberedBtnIndex >= 0) {
+      const lv_coord_t row = static_cast<lv_coord_t>(static_cast<size_t>(rememberedBtnIndex) / perRow);
+      ScrollTo((row - 1) * kScrollRowHeight, false);
+    }
+  } else {
+    lv_obj_set_size(buttonMatrix, kMatrixWidth, kViewHeight);
+    lv_obj_align(buttonMatrix, nullptr, LV_ALIGN_IN_BOTTOM_MID, 0, -5);
+  }
 
   // Row separators don't consume a button index, so options[i] lines up
   // directly with button index i regardless of how rows were wrapped.
@@ -132,6 +194,48 @@ void ClimbLogger::ShowOptionsStep(const char* title, const char* const* options,
     lv_btnmatrix_set_one_check(buttonMatrix, true);
     lv_btnmatrix_set_btn_ctrl(buttonMatrix, static_cast<uint16_t>(rememberedBtnIndex), LV_BTNMATRIX_CTRL_CHECK_STATE);
   }
+}
+
+void ClimbLogger::ScrollTo(lv_coord_t offset, bool animate) {
+  if (scrollPage == nullptr) {
+    return;
+  }
+  if (offset < 0) {
+    offset = 0;
+  }
+  if (offset > scrollMax) {
+    offset = scrollMax;
+  }
+  scrollOffset = offset;
+
+  lv_obj_t* scrl = lv_page_get_scrollable(scrollPage);
+  const lv_coord_t targetY = scrollTopY - offset;
+  if (animate) {
+    // Relative to wherever the scrollable is right now, so a swipe landing
+    // mid-animation still ends on the intended offset.
+    lv_page_scroll_ver(scrollPage, targetY - lv_obj_get_y(scrl));
+  } else {
+    lv_obj_set_y(scrl, targetY);
+  }
+}
+
+bool ClimbLogger::OnTouchEvent(Pinetime::Applications::TouchEvents event) {
+  // Returning true tells DisplayApp the swipe was consumed: it then
+  // cancels the in-flight tap (so the swipe doesn't also click a button)
+  // and skips its default swipe-down-to-leave-the-app handling. Steps
+  // without a scrolling list return false and keep that default.
+  if (scrollPage == nullptr) {
+    return false;
+  }
+  if (event == TouchEvents::SwipeUp) {
+    ScrollTo(scrollOffset + kScrollStep, true);
+    return true;
+  }
+  if (event == TouchEvents::SwipeDown) {
+    ScrollTo(scrollOffset - kScrollStep, true);
+    return true;
+  }
+  return false;
 }
 
 void ClimbLogger::OnButtonMatrixEvent(lv_obj_t* obj, lv_event_t event) {
@@ -316,5 +420,7 @@ void ClimbLogger::LoadRememberedSelections() {
   // Grade ladder depends on style, already resolved above.
   selectedGrade = IsBoulderStyle() ? FindOption(vScaleGrades, std::size(vScaleGrades), gradeText)
                                     : FindOption(fontScaleGrades, std::size(fontScaleGrades), gradeText);
-  selectedAttempt = FindOption(attemptOptions, std::size(attemptOptions), attemptText);
+  // Likewise the attempt list.
+  selectedAttempt = IsLeadOrSecondStyle() ? FindOption(leadAttemptOptions, std::size(leadAttemptOptions), attemptText)
+                                          : FindOption(attemptOptions, std::size(attemptOptions), attemptText);
 }

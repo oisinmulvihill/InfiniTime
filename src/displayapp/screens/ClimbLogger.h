@@ -39,12 +39,13 @@ namespace Pinetime {
         ~ClimbLogger() override;
 
         void OnButtonMatrixEvent(lv_obj_t* obj, lv_event_t event);
+        bool OnTouchEvent(TouchEvents event) override;
 
         // Max distinct options offered at any one step. Public so the free
         // helper functions in ClimbLogger.cpp (which build those option
         // lists ahead of a ClimbLogger method call) can size their buffers
         // against it.
-        static constexpr size_t kMaxOptions = 8;
+        static constexpr size_t kMaxOptions = 20;
 
       private:
         enum class Step { Gym, Style, Type, Grade, Attempt };
@@ -71,8 +72,18 @@ namespace Pinetime {
         lv_obj_t* titleLabel = nullptr;
         lv_obj_t* buttonMatrix = nullptr;
 
+        // Only set on steps whose list is too long for one screen; the
+        // button matrix then lives inside this page. Offsets are pixels
+        // scrolled down from the top of the list.
+        lv_obj_t* scrollPage = nullptr;
+        lv_coord_t scrollTopY = 0;
+        lv_coord_t scrollOffset = 0;
+        lv_coord_t scrollMax = 0;
+
         void ShowStep();
         void ShowOptionsStep(const char* title, const char* const* options, size_t count, const char* rememberedValue);
+
+        void ScrollTo(lv_coord_t offset, bool animate);
 
         void OnOptionSelected(const char* text);
         void LogAndReset();
@@ -81,6 +92,7 @@ namespace Pinetime {
         void SaveRememberedSelections();
 
         bool IsBoulderStyle() const;
+        bool IsLeadOrSecondStyle() const;
       };
     }
 
